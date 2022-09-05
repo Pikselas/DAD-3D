@@ -2,78 +2,111 @@
 
 Canvas3D::Canvas3D(const Window& wnd) : Halfheight(wnd.height / 2), Halfwidth(wnd.width / 2)
 {
-
+	PtrManager<ID3D11Resource> pBackBuffer;
 	DXGI_SWAP_CHAIN_DESC sd = { 0 };
-	sd.BufferDesc.Width = 0;
+	sd.BufferDesc.Width = 0;  // look at the window and use it's size
 	sd.BufferDesc.Height = 0;
-	sd.BufferDesc.RefreshRate.Numerator = 0;
+	sd.BufferDesc.RefreshRate.Numerator = 0; // pick the default refresh rates
 	sd.BufferDesc.RefreshRate.Denominator = 0;
-	sd.BufferCount = 1;
-	sd.BufferDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-	sd.BufferDesc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
-	sd.BufferDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
-	sd.Flags = 0;
-	sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+	sd.BufferCount = 1;  // one back buffer -> one back and one front double buffering
+	sd.BufferDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM; // this is the color format (BGRA) 
+	sd.BufferDesc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED; // not specifying any scaling because we want the renedred frame same as window size
+	sd.BufferDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED; // how buffer scaning will be done for copying all to video memory
+	sd.Flags = 0; // not setting any flags
+	sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; // use the buffer for render target
 	sd.OutputWindow = wnd.window_handle;
-	sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+	sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD; // discard the effects for swapping frames
 	sd.Windowed = TRUE;
+	// for antialiasing we don't want it right now
 	sd.SampleDesc.Count = 1;
 	sd.SampleDesc.Quality = 0;
 
-	D3D11CreateDeviceAndSwapChain(0, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &sd, &SwapChain, &Device, nullptr, &ImmediateContext);
-
-	Microsoft::WRL::ComPtr<ID3D11Resource> pBackBuffer;
+	if (auto hrcode = D3D11CreateDeviceAndSwapChain(0, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &sd, &SwapChain, &Device, nullptr, &ImmediateContext); FAILED(hrcode))
+	{
+		throw hrcode;
+	}
 
 	SwapChain->GetBuffer(0, __uuidof(ID3D11Resource), &pBackBuffer);
 	Device->CreateRenderTargetView(pBackBuffer.Get(), nullptr, &RenderTarget);
 
-	D3D11_DEPTH_STENCIL_DESC depthDesc = { 0 };
-	depthDesc.DepthEnable = TRUE;
-	depthDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
-	depthDesc.DepthFunc = D3D11_COMPARISON_LESS;
+	// base structure for every vertex type
+	struct VertexType
+	{
+		float x, y, z;
+		unsigned char r, g, b, a;
+	};
 
-	Microsoft::WRL::ComPtr<ID3D11DepthStencilState> pDepthStencil;
-	Device->CreateDepthStencilState(&depthDesc, &pDepthStencil);
+	//creating an array of vertices that will be drawn
+	//below points are position for a triangle showing at the middle of the screen
+	//viewport's range is from -1.0f to 1.0f (x,y,z axis)
+	//triangle will be drawn using vertices at clockwise
 
-	ImmediateContext->OMSetDepthStencilState(pDepthStencil.Get(), 1u);
+	VertexType vtx[] = {
+		{0.0 , 0.5 , 0.0 , 255 , 0 , 0 },
+		{0.5 , -0.5 , 0.0 , 0 , 255 , 0 },
+		{-0.5 , -0.5 , 0.0 ,  0 , 0, 255 }
+	};
 
-	Microsoft::WRL::ComPtr<ID3D11Texture2D> pDepthTexture;
-	D3D11_TEXTURE2D_DESC depthTexDesc = { 0 };
-	depthTexDesc.Height = wnd.height;
-	depthTexDesc.Width = wnd.width;
-	depthTexDesc.MipLevels = 1u;
-	depthTexDesc.ArraySize = 1u;
-	depthTexDesc.Format = DXGI_FORMAT_D32_FLOAT;
-	depthTexDesc.SampleDesc.Count = 1u;
-	depthTexDesc.SampleDesc.Quality = 0u;
-	depthTexDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
-	depthTexDesc.Usage = D3D11_USAGE_DEFAULT;
+	//vertex buffer description
+	D3D11_BUFFER_DESC bd = { 0 };
+	bd.ByteWidth = sizeof(vtx);					//total array size
+	bd.Usage = D3D11_USAGE_DEFAULT;				// how buffer data will be used (read/write protections for GPU/CPU)
+	bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;	// What type of buffer would it be
+	bd.CPUAccessFlags = 0u;						// we don't want any cpu access for now so setting it to 0 for now
+	bd.MiscFlags = 0u;							// misscellinious flag for buffer configuration (we don't want it now either)
+	bd.StructureByteStride = sizeof(VertexType); // Size of every vertex in the array 
 
-	Device->CreateTexture2D(&depthTexDesc, nullptr, &pDepthTexture);
+	//holds the data pointer that will be used in vertex buffer
+	D3D11_SUBRESOURCE_DATA subd = { 0 };
+	subd.pSysMem = vtx; // pointer to array so that it can copy all the array data to the buffer
 
-	D3D11_DEPTH_STENCIL_VIEW_DESC depthViewDesc = {  };
-	depthViewDesc.Format = DXGI_FORMAT_D32_FLOAT;
-	depthViewDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
-	depthViewDesc.Texture2D.MipSlice = 0u;
+	Microsoft::WRL::ComPtr<ID3D11Buffer> VBuffer;
+	Device->CreateBuffer(&bd, &subd, &VBuffer);
+	UINT stride = sizeof(VertexType); // size of every vertex
+	UINT offset = 0u; // displacement after which the actual data start (so 0 because no displacement is there)
+	//statrting slot(from 0) , number of buffers(1 buffer) , pp , 
+	ImmediateContext->IASetVertexBuffers(0u, 1u, VBuffer.GetAddressOf(), &stride, &offset);
 
-	Device->CreateDepthStencilView(pDepthTexture.Get(), &depthViewDesc, &DepthView);
+	Microsoft::WRL::ComPtr<ID3D11VertexShader> vS; // shader pointer
+	Microsoft::WRL::ComPtr<ID3DBlob> blb; // holds the compiled shader bytecode
+	D3DReadFileToBlob(L"VertexShader.cso", &blb); // reading the bytecode and storing it to blob
+	Device->CreateVertexShader(blb->GetBufferPointer(), blb->GetBufferSize(), nullptr, &vS); // creating vertex shader
+	ImmediateContext->VSSetShader(vS.Get(), nullptr, 0u); // binding vertex shader
 
-	ImmediateContext->OMSetRenderTargets(1u, RenderTarget.GetAddressOf(), DepthView.Get());
+	Microsoft::WRL::ComPtr<ID3D11InputLayout> inpl;
+	//semantic name , semantic index , format , inputslot , offset , input data class , data step rate
 
-	
+	D3D11_INPUT_ELEMENT_DESC ied[] = {
 
-	
-	
+		//tells that the first 3 * 4 * 8 bits = 32 * 3 = 96 bits of the vertex struct are for positions for every vertex
+		{"POSITION",0,DXGI_FORMAT_R32G32B32_FLOAT,0,0,D3D11_INPUT_PER_VERTEX_DATA,0},
+		//and next 3 * 1 * 8 = 24 bits are color value for each of those vertex
+		// unorm for automaticall convert 0-255 range 0.0-1.0 range
+		{"COLOR",0,DXGI_FORMAT_R8G8B8A8_UNORM,0,12u,D3D11_INPUT_PER_VERTEX_DATA,0}
+	};
+	//creating and setting
+	Device->CreateInputLayout(ied, (UINT)std::size(ied), blb->GetBufferPointer(), blb->GetBufferSize(), &inpl);
+	ImmediateContext->IASetInputLayout(inpl.Get());
+
+	Microsoft::WRL::ComPtr<ID3D11PixelShader> ps; // shader pointer
+	D3DReadFileToBlob(L"PixelShader.cso", &blb); // reading file to blob
+	Device->CreatePixelShader(blb->GetBufferPointer(), blb->GetBufferSize(), nullptr, &ps); // creating
+	ImmediateContext->PSSetShader(ps.Get(), nullptr, 0u); // setting
+
+	ImmediateContext->OMSetRenderTargets(1u, RenderTarget.GetAddressOf(), nullptr);
+
 	D3D11_VIEWPORT vp = {};
 	vp.TopLeftX = 0;
 	vp.TopLeftY = 0;
-	vp.Width = (float)wnd.width;
-	vp.Height = (float)wnd.height;
-	vp.MaxDepth = 1;
-	vp.MinDepth = 0;
+	vp.Width = 800;  //screen height
+	vp.Height = 600; // screen width
+	vp.MaxDepth = 1; // maximum depth for z axis
+	vp.MinDepth = 0; // minimum depth for z axis
 	ImmediateContext->RSSetViewports(1u, &vp);
 
+	//draws the vertices as a list of traingles 
 	ImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
 }
 
 void Canvas3D::ClearCanvas() const
@@ -85,6 +118,7 @@ void Canvas3D::ClearCanvas() const
 
 void Canvas3D::PresentOnScreen() const
 {
+	ImmediateContext->Draw(3, 0);
 	SwapChain->Present(1u, 0u);
 }
 

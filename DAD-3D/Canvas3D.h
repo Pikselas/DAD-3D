@@ -1,8 +1,9 @@
 #pragma once
 #include<d3d11.h>
+#include<d3dcompiler.h>
 #include<wrl.h>
 #pragma comment(lib,"d3d11.lib")
-#include<DirectXMath.h>
+#pragma comment(lib,"D3DCompiler.lib")
 
 #include"Window.h"
 
