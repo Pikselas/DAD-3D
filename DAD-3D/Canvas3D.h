@@ -2,6 +2,7 @@
 #include<d3d11.h>
 #include<d3dcompiler.h>
 #include<wrl.h>
+#include<vector>
 #pragma comment(lib,"d3d11.lib")
 #pragma comment(lib,"D3DCompiler.lib")
 
@@ -20,10 +21,20 @@ private:
 	PtrManager<ID3D11RenderTargetView> RenderTarget;
 	PtrManager<ID3D11DepthStencilView> DepthView;
 private:
+	struct VertexType
+	{
+		float x, y, z;
+		unsigned char r, g, b, a;
+	};
+private:
+	std::vector<VertexType> VERTEX_BUFFER;
+private:
 	const float Halfheight;
 	const float Halfwidth;
+private:
+	void DrawFunction(Window& wnd);
 public:
-	Canvas3D(const Window& wnd);
+	Canvas3D(Window& wnd);
 public:
 	std::pair<float, float> GetNormalizedWindowPos(int x, int y) const;
 	void ClearCanvas() const;

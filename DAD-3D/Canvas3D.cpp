@@ -1,7 +1,42 @@
 #include"Canvas3D.h"
 
-Canvas3D::Canvas3D(const Window& wnd) : Halfheight(wnd.height / 2), Halfwidth(wnd.width / 2)
+void Canvas3D::DrawFunction(Window& wnd)
 {
+	auto [x, y] = wnd.mouse.GetXY();
+	auto [flt_x, flt_y] = GetNormalizedWindowPos(x, y);
+
+	VERTEX_BUFFER.emplace_back(flt_x , flt_y , 0.0f , 255 , 255 , 255);
+
+	//vertex buffer description
+	D3D11_BUFFER_DESC bd = { 0 };
+	bd.ByteWidth = sizeof(VertexType) * VERTEX_BUFFER.size();					//total array size
+	bd.Usage = D3D11_USAGE_DEFAULT;				// how buffer data will be used (read/write protections for GPU/CPU)
+	bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;	// What type of buffer would it be
+	bd.CPUAccessFlags = 0u;						// we don't want any cpu access for now so setting it to 0 for now
+	bd.MiscFlags = 0u;							// misscellinious flag for buffer configuration (we don't want it now either)
+	bd.StructureByteStride = sizeof(VertexType); // Size of every vertex in the array 
+
+	//holds the data pointer that will be used in vertex buffer
+	D3D11_SUBRESOURCE_DATA subd = { 0 };
+	subd.pSysMem = VERTEX_BUFFER.data(); // pointer to array so that it can copy all the array data to the buffer
+
+	Microsoft::WRL::ComPtr<ID3D11Buffer> VBuffer;
+	Device->CreateBuffer(&bd, &subd, &VBuffer);
+	UINT stride = sizeof(VertexType); // size of every vertex
+	UINT offset = 0u; // displacement after which the actual data start (so 0 because no displacement is there)
+	//statrting slot(from 0) , number of buffers(1 buffer) , pp , 
+	ImmediateContext->IASetVertexBuffers(0u, 1u, VBuffer.GetAddressOf(), &stride, &offset);
+
+}
+
+Canvas3D::Canvas3D(Window& wnd) : Halfheight(wnd.height / 2), Halfwidth(wnd.width / 2)
+{
+	wnd.mouse.OnLeftPress = [this](Window& wnd) {
+	
+		DrawFunction(wnd);
+	
+	};
+
 	PtrManager<ID3D11Resource> pBackBuffer;
 	DXGI_SWAP_CHAIN_DESC sd = { 0 };
 	sd.BufferDesc.Width = 0;  // look at the window and use it's size
@@ -28,44 +63,6 @@ Canvas3D::Canvas3D(const Window& wnd) : Halfheight(wnd.height / 2), Halfwidth(wn
 
 	SwapChain->GetBuffer(0, __uuidof(ID3D11Resource), &pBackBuffer);
 	Device->CreateRenderTargetView(pBackBuffer.Get(), nullptr, &RenderTarget);
-
-	// base structure for every vertex type
-	struct VertexType
-	{
-		float x, y, z;
-		unsigned char r, g, b, a;
-	};
-
-	//creating an array of vertices that will be drawn
-	//below points are position for a triangle showing at the middle of the screen
-	//viewport's range is from -1.0f to 1.0f (x,y,z axis)
-	//triangle will be drawn using vertices at clockwise
-
-	VertexType vtx[] = {
-		{0.0 , 0.5 , 0.0 , 255 , 0 , 0 },
-		{0.5 , -0.5 , 0.0 , 0 , 255 , 0 },
-		{-0.5 , -0.5 , 0.0 ,  0 , 0, 255 }
-	};
-
-	//vertex buffer description
-	D3D11_BUFFER_DESC bd = { 0 };
-	bd.ByteWidth = sizeof(vtx);					//total array size
-	bd.Usage = D3D11_USAGE_DEFAULT;				// how buffer data will be used (read/write protections for GPU/CPU)
-	bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;	// What type of buffer would it be
-	bd.CPUAccessFlags = 0u;						// we don't want any cpu access for now so setting it to 0 for now
-	bd.MiscFlags = 0u;							// misscellinious flag for buffer configuration (we don't want it now either)
-	bd.StructureByteStride = sizeof(VertexType); // Size of every vertex in the array 
-
-	//holds the data pointer that will be used in vertex buffer
-	D3D11_SUBRESOURCE_DATA subd = { 0 };
-	subd.pSysMem = vtx; // pointer to array so that it can copy all the array data to the buffer
-
-	Microsoft::WRL::ComPtr<ID3D11Buffer> VBuffer;
-	Device->CreateBuffer(&bd, &subd, &VBuffer);
-	UINT stride = sizeof(VertexType); // size of every vertex
-	UINT offset = 0u; // displacement after which the actual data start (so 0 because no displacement is there)
-	//statrting slot(from 0) , number of buffers(1 buffer) , pp , 
-	ImmediateContext->IASetVertexBuffers(0u, 1u, VBuffer.GetAddressOf(), &stride, &offset);
 
 	Microsoft::WRL::ComPtr<ID3D11VertexShader> vS; // shader pointer
 	Microsoft::WRL::ComPtr<ID3DBlob> blb; // holds the compiled shader bytecode
@@ -105,7 +102,7 @@ Canvas3D::Canvas3D(const Window& wnd) : Halfheight(wnd.height / 2), Halfwidth(wn
 	ImmediateContext->RSSetViewports(1u, &vp);
 
 	//draws the vertices as a list of traingles 
-	ImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	ImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINESTRIP);
 
 }
 
@@ -118,7 +115,7 @@ void Canvas3D::ClearCanvas() const
 
 void Canvas3D::PresentOnScreen() const
 {
-	ImmediateContext->Draw(3, 0);
+	ImmediateContext->Draw(VERTEX_BUFFER.size(), 0);
 	SwapChain->Present(1u, 0u);
 }
 

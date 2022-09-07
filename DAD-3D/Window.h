@@ -6,7 +6,6 @@
 #include<source_location>
 #include"resource.h"
 
-class Canvas2D;
 class Canvas3D;
 
 class Window
